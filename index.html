@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#111827">
+<title>간단 가계부</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f5f6f8;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Noto Sans KR",sans-serif}
+.app{max-width:520px;margin:auto;min-height:100vh;padding:18px 14px 40px}
+h1{font-size:24px;margin:4px 2px 18px}.card{background:#fff;border-radius:18px;padding:16px;margin-bottom:14px;box-shadow:0 2px 12px #0000000b}
+label{display:block;font-size:13px;color:#6b7280;margin:0 0 7px}
+input,select{width:100%;height:48px;border:1px solid #e5e7eb;border-radius:12px;padding:0 13px;font-size:16px;background:#fff}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}.amount{font-size:22px;font-weight:700}
+.cats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px}
+.cat{border:1px solid #e5e7eb;background:#fff;border-radius:12px;padding:11px 5px;font-size:14px}.cat.active{background:#111827;color:#fff;border-color:#111827}
+button{cursor:pointer}.save{width:100%;height:50px;border:0;border-radius:13px;background:#111827;color:white;font-size:16px;font-weight:700;margin-top:12px}
+.tabs{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}.tab{height:44px;border:0;border-radius:12px;background:#e5e7eb;font-weight:700}.tab.active{background:#111827;color:#fff}
+.datebar{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;font-weight:700}.datebar button{border:0;background:#f3f4f6;border-radius:10px;padding:8px 10px}
+.item{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid #f0f0f0}.item:last-child{border-bottom:0}
+.item small{display:block;color:#9ca3af;margin-top:3px}.price{font-weight:700}.delete{border:0;background:transparent;color:#9ca3af;margin-left:8px}
+.total{font-size:27px;font-weight:800;margin-top:4px}.muted{color:#9ca3af;font-size:13px}.barrow{margin:14px 0}.barhead{display:flex;justify-content:space-between;font-size:14px;margin-bottom:6px}.bar{height:10px;background:#eef0f3;border-radius:20px;overflow:hidden}.fill{height:100%;background:#111827;border-radius:20px}
+.empty{text-align:center;color:#9ca3af;padding:25px 0}.actions{display:flex;gap:8px;margin-top:12px}.secondary{flex:1;height:42px;border:1px solid #e5e7eb;background:#fff;border-radius:10px}.danger{color:#b91c1c}
+.hidden{display:none!important}
+</style>
+</head>
+<body>
+<div class="app">
+<h1>💰 간단 가계부</h1>
+
+<div class="tabs">
+<button class="tab active" id="tabDaily">날짜별</button>
+<button class="tab" id="tabMonthly">월간 통계</button>
+</div>
+
+<section id="daily">
+<div class="card">
+<div class="row">
+<div><label>날짜</label><input type="date" id="date"></div>
+<div><label>금액</label><input class="amount" type="number" id="amount" inputmode="numeric" placeholder="0" min="0"></div>
+</div>
+<label style="margin-top:14px">분류</label>
+<div class="cats" id="cats"></div>
+<label style="margin-top:14px">메모 (선택)</label>
+<input id="memo" type="text" placeholder="예: 점심 김치찌개">
+<button class="save" id="save">＋ 지출 저장</button>
+</div>
+
+<div class="card">
+<div class="datebar">
+<button id="prevDay">‹</button><span id="selectedDate"></span><button id="nextDay">›</button>
+</div>
+<div id="dayList"></div>
+</div>
+</section>
+
+<section id="monthly" class="hidden">
+<div class="card">
+<div class="datebar">
+<button id="prevMonth">‹</button><span id="monthTitle"></span><button id="nextMonth">›</button>
+</div>
+<div class="muted">이번 달 총 지출</div>
+<div class="total" id="monthTotal">0원</div>
+<div class="muted" id="dailyAvg"></div>
+</div>
+<div class="card" id="stats"></div>
+<div class="card">
+<div class="actions">
+<button class="secondary" id="export">CSV 내보내기</button>
+<button class="secondary danger" id="clear">전체 삭제</button>
+</div>
+</div>
+</section>
+</div>
+
+<script>
+const CATS=["식비","커피","생활용품","배달비","약","기타"];
+const EMOJI={식비:"🍚",커피:"☕",생활용품:"🧻",배달비:"🛵",약:"💊",기타:"📦"};
+let data=JSON.parse(localStorage.getItem("simpleBudget")||"[]");
+let selectedCat="식비";
+const todayISO=()=>{const d=new Date();return new Date(d-d.getTimezoneOffset()*60000).toISOString().slice(0,10)};
+let selectedDate=todayISO();
+let viewMonth=selectedDate.slice(0,7);
+
+const money=n=>new Intl.NumberFormat("ko-KR").format(n)+"원";
+const saveData=()=>localStorage.setItem("simpleBudget",JSON.stringify(data));
+const catsEl=document.getElementById("cats");
+CATS.forEach(c=>{const b=document.createElement("button");b.className="cat"+(c===selectedCat?" active":"");b.textContent=EMOJI[c]+" "+c;b.onclick=()=>{selectedCat=c;document.querySelectorAll(".cat").forEach(x=>x.classList.remove("active"));b.classList.add("active")};catsEl.appendChild(b)});
+
+document.getElementById("date").value=selectedDate;
+document.getElementById("date").onchange=e=>{selectedDate=e.target.value;renderDay()};
+function fmtDate(s){const d=new Date(s+"T00:00:00");return `${d.getFullYear()}년 ${d.getMonth()+1}월 ${d.getDate()}일 (${["일","월","화","수","목","금","토"][d.getDay()]})`}
+function renderDay(){
+document.getElementById("date").value=selectedDate;document.getElementById("selectedDate").textContent=fmtDate(selectedDate);
+const list=data.filter(x=>x.date===selectedDate).sort((a,b)=>b.id-a.id);const el=document.getElementById("dayList");
+if(!list.length){el.innerHTML='<div class="empty">이 날의 지출이 없어요.</div>';return}
+el.innerHTML=list.map(x=>`<div class="item"><div><b>${EMOJI[x.cat]} ${x.cat}</b><small>${x.memo||"메모 없음"}</small></div><div><span class="price">${money(x.amount)}</span><button class="delete" onclick="del(${x.id})">삭제</button></div></div>`).join("");
+}
+function del(id){data=data.filter(x=>x.id!==id);saveData();renderDay();renderMonth()}
+document.getElementById("save").onclick=()=>{
+const amount=Number(document.getElementById("amount").value);
+if(!amount||amount<0){alert("금액을 입력해주세요.");return}
+data.push({id:Date.now(),date:document.getElementById("date").value,amount,cat:selectedCat,memo:document.getElementById("memo").value.trim()});
+saveData();document.getElementById("amount").value="";document.getElementById("memo").value="";selectedDate=document.getElementById("date").value;renderDay();renderMonth();
+};
+
+function shiftDay(n){const d=new Date(selectedDate+"T00:00:00");d.setDate(d.getDate()+n);selectedDate=d.toISOString().slice(0,10);renderDay()}
+document.getElementById("prevDay").onclick=()=>shiftDay(-1);document.getElementById("nextDay").onclick=()=>shiftDay(1);
+
+function renderMonth(){
+const [y,m]=viewMonth.split("-").map(Number);document.getElementById("monthTitle").textContent=`${y}년 ${m}월`;
+const list=data.filter(x=>x.date.startsWith(viewMonth));const total=list.reduce((s,x)=>s+x.amount,0);
+document.getElementById("monthTotal").textContent=money(total);
+const days=new Set(list.map(x=>x.date)).size;document.getElementById("dailyAvg").textContent=days?`지출이 있었던 날 기준 평균 ${money(Math.round(total/days))}`:"지출 내역이 없습니다.";
+const sums=Object.fromEntries(CATS.map(c=>[c,0]));list.forEach(x=>sums[x.cat]+=x.amount);
+const max=Math.max(...Object.values(sums),0);const el=document.getElementById("stats");
+el.innerHTML='<b>분류별 지출</b>'+CATS.map(c=>`<div class="barrow"><div class="barhead"><span>${EMOJI[c]} ${c}</span><span>${money(sums[c])}${total?` · ${Math.round(sums[c]/total*100)}%`:""}</span></div><div class="bar"><div class="fill" style="width:${max?sums[c]/max*100:0}%"></div></div></div>`).join("");
+}
+function shiftMonth(n){const [y,m]=viewMonth.split("-").map(Number);const d=new Date(y,m-1+n,1);viewMonth=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;renderMonth()}
+document.getElementById("prevMonth").onclick=()=>shiftMonth(-1);document.getElementById("nextMonth").onclick=()=>shiftMonth(1);
+
+document.getElementById("tabDaily").onclick=()=>{daily.classList.remove("hidden");monthly.classList.add("hidden");tabDaily.classList.add("active");tabMonthly.classList.remove("active")};
+document.getElementById("tabMonthly").onclick=()=>{daily.classList.add("hidden");monthly.classList.remove("hidden");tabDaily.classList.remove("active");tabMonthly.classList.add("active");renderMonth()};
+
+document.getElementById("export").onclick=()=>{
+const rows=[["날짜","금액","분류","메모"],...data.map(x=>[x.date,x.amount,x.cat,x.memo])];
+const csv="\uFEFF"+rows.map(r=>r.map(v=>`"${String(v).replaceAll('"','""')}"`).join(",")).join("\n");
+const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"}));a.download="가계부.csv";a.click();
+};
+document.getElementById("clear").onclick=()=>{if(confirm("모든 지출을 삭제할까요?")){data=[];saveData();renderDay();renderMonth()}};
+renderDay();renderMonth();
+</script>
+</body>
+</html>
